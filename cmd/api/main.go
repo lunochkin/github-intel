@@ -8,10 +8,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lunochkin/github-intel/internal/dotenv"
 	"github.com/lunochkin/github-intel/internal/server"
 )
 
 func main() {
+	if err := dotenv.Load(); err != nil {
+		log.Fatalf("load .env: %v", err)
+	}
+
 	addr := getenv("LISTEN_ADDR", ":8080")
 	srv := &http.Server{
 		Addr:         addr,
