@@ -1,0 +1,12 @@
+data/
+
+# Go
+/bin/
+/dist/
+/coverage.out
+*.exe
+*.test
+vendor/
+
+# IDE
+.idea/
