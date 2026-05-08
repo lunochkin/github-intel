@@ -6,7 +6,10 @@ LDFLAGS ?=
 
 BUILD_TARGETS := $(addprefix $(BIN_DIR)/,$(CMDS))
 
-.PHONY: all help build install fmt vet test test-race tidy clean run-api run-ingestor lint
+.PHONY: all help build install fmt vet test test-race tidy clean run-api run-ingestor run-migrate-clickhouse lint
+
+# Arguments for run-migrate-clickhouse (e.g. make run-migrate-clickhouse MIGRATE_ARGS=version)
+MIGRATE_ARGS ?= up
 
 all: build ## Default: compile cmd binaries into $(BIN_DIR)/
 
@@ -45,6 +48,9 @@ run-api: ## Run cmd/api (pass LISTEN_ADDR=:8080 to override)
 
 run-ingestor: ## Run cmd/ingestor
 	$(GO) run ./cmd/ingestor
+
+run-migrate-clickhouse: ## Run cmd/migrate-clickhouse (default: up; use MIGRATE_ARGS=… to override)
+	$(GO) run ./cmd/migrate-clickhouse $(MIGRATE_ARGS)
 
 lint: ## golangci-lint run (requires golangci-lint on PATH)
 	golangci-lint run ./...
