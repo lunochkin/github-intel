@@ -8,7 +8,7 @@ LDFLAGS ?=
 
 BUILD_TARGETS := $(addprefix $(BIN_DIR)/,$(CMDS))
 
-.PHONY: all help build install fmt vet test test-race tidy clean run-api dev-api run-ingestor run-migrate-clickhouse lint web-install web-dev web-build
+.PHONY: all help build install fmt vet test test-race tidy clean run-api dev-api run-ingestor run-ingestor-hourly run-migrate-clickhouse lint web-install web-dev web-build
 
 # Arguments for run-migrate-clickhouse (e.g. make run-migrate-clickhouse MIGRATE_ARGS=version)
 MIGRATE_ARGS ?= up
@@ -52,9 +52,11 @@ run-api: ## Run cmd/api (pass LISTEN_ADDR=:8800 to override)
 dev-api: ## Run cmd/api with file watch (restarts on Go source / module changes)
 	$(GO) run $(GOW) -e=go -e=mod -e=sum run ./cmd/api
 
-run-ingestor: ## Run cmd/ingestor. Quote INGESTOR_ARGS for brace ranges (otherwise the shell/Makefile split words): INGESTOR_ARGS='data/2015-01-01-{0..23}.json.gz'
-	@set -e; ns_files=$$(bash -eu -c 'for a; do eval echo -n "$$a "; done' _ $(INGESTOR_ARGS)); \
-	$(GO) run ./cmd/ingestor $$ns_files
+run-ingestor: ## Run cmd/ingestor (set INGESTOR_ARGS or use run-ingestor-hourly)
+	$(GO) run ./cmd/ingestor $(INGESTOR_ARGS)
+
+run-ingestor-hourly: ## Poll GH Archive for current UTC hour file (next published) and ingest once
+	$(GO) run ./cmd/ingestor -hourly
 
 run-migrate-clickhouse: ## Run cmd/migrate-clickhouse (default: up; use MIGRATE_ARGS=… to override)
 	$(GO) run ./cmd/migrate-clickhouse $(MIGRATE_ARGS)
