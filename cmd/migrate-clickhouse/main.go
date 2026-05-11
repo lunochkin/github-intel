@@ -86,11 +86,11 @@ func main() {
 }
 
 func dsn() string {
-	host := getenv("CLICKHOUSE_HOST", "localhost")
-	port := getenv("CLICKHOUSE_PORT", "9000")
-	user := getenv("CLICKHOUSE_USER", "default")
+	host := os.Getenv("CLICKHOUSE_HOST")
+	port := os.Getenv("CLICKHOUSE_PORT")
+	user := os.Getenv("CLICKHOUSE_USER")
 	password := os.Getenv("CLICKHOUSE_PASSWORD")
-	db := getenv("CLICKHOUSE_MIGRATIONS_DATABASE", "default")
+	db := os.Getenv("CLICKHOUSE_MIGRATIONS_DATABASE")
 
 	u := url.URL{
 		Scheme: "clickhouse",
@@ -106,11 +106,4 @@ func dsn() string {
 	q.Set("x-migrations-table-engine", "MergeTree")
 	u.RawQuery = q.Encode()
 	return u.String()
-}
-
-func getenv(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
 }
