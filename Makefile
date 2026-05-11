@@ -8,7 +8,7 @@ LDFLAGS ?=
 
 BUILD_TARGETS := $(addprefix $(BIN_DIR)/,$(CMDS))
 
-.PHONY: all help build install fmt vet test test-race tidy clean run-api dev-api run-ingestor run-migrate-clickhouse lint
+.PHONY: all help build install fmt vet test test-race tidy clean run-api dev-api run-ingestor run-migrate-clickhouse lint web-install web-dev web-build
 
 # Arguments for run-migrate-clickhouse (e.g. make run-migrate-clickhouse MIGRATE_ARGS=version)
 MIGRATE_ARGS ?= up
@@ -46,7 +46,7 @@ tidy: ## go mod tidy
 clean: ## Remove $(BIN_DIR)/
 	rm -rf $(BIN_DIR)
 
-run-api: ## Run cmd/api (pass LISTEN_ADDR=:8080 to override)
+run-api: ## Run cmd/api (pass LISTEN_ADDR=:8800 to override)
 	$(GO) run ./cmd/api
 
 dev-api: ## Run cmd/api with file watch (restarts on Go source / module changes)
@@ -60,3 +60,12 @@ run-migrate-clickhouse: ## Run cmd/migrate-clickhouse (default: up; use MIGRATE_
 
 lint: ## golangci-lint run (requires golangci-lint on PATH)
 	golangci-lint run ./...
+
+web-install: ## npm install in web/
+	cd web && npm install
+
+web-dev: ## Vite dev server (proxies /summary and /healthz to localhost:8800)
+	cd web && npm run dev
+
+web-build: ## Production build of web UI into web/dist
+	cd web && npm run build
