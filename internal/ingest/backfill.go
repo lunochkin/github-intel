@@ -2,14 +2,8 @@ package ingest
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -28,98 +22,6 @@ type BackfillOptions struct {
 	PauseBetween time.Duration
 	// MaxIngestAttempts is retries per hour when ingest fails (e.g. 5xx during download).
 	MaxIngestAttempts int
-}
-
-// backfillState persists the next hour to ingest (UTC).
-type backfillState struct {
-	NextHourUTC string `json:"next_hour_utc"`
-}
-
-func truncateHourUTC(t time.Time) time.Time {
-	return t.UTC().Truncate(time.Hour)
-}
-
-// ParseBackfillInstant parses RFC3339 or UTC date "2006-01-02" and returns that instant truncated to the hour.
-func ParseBackfillInstant(s string) (time.Time, error) {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return time.Time{}, fmt.Errorf("empty time string")
-	}
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return truncateHourUTC(t), nil
-	}
-	t, err := time.ParseInLocation("2006-01-02", s, time.UTC)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("parse time %q: use RFC3339 or YYYY-MM-DD (UTC)", s)
-	}
-	return truncateHourUTC(t), nil
-}
-
-// loadBackfillState reads StatePath. If missing or invalid, returns (zero, false, nil).
-func loadBackfillState(path string) (nextHour time.Time, ok bool, err error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return time.Time{}, false, nil
-		}
-		return time.Time{}, false, err
-	}
-	var st backfillState
-	if err := json.Unmarshal(data, &st); err != nil {
-		return time.Time{}, false, fmt.Errorf("state file %s: %w", path, err)
-	}
-	if st.NextHourUTC == "" {
-		return time.Time{}, false, nil
-	}
-	t, err := time.Parse(time.RFC3339Nano, st.NextHourUTC)
-	if err != nil {
-		t, err = time.Parse(time.RFC3339, st.NextHourUTC)
-	}
-	if err != nil {
-		return time.Time{}, false, fmt.Errorf("state next_hour_utc %q: %w", st.NextHourUTC, err)
-	}
-	return truncateHourUTC(t), true, nil
-}
-
-func saveBackfillState(path string, nextHour time.Time) error {
-	nextHour = truncateHourUTC(nextHour)
-	st := backfillState{NextHourUTC: nextHour.UTC().Format(time.RFC3339)}
-	data, err := json.MarshalIndent(st, "", "  ")
-	if err != nil {
-		return err
-	}
-	dir := filepath.Dir(path)
-	if dir != "." && dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-	}
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	committed := false
-	defer func() {
-		_ = tmp.Close()
-		if !committed {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	if _, err := tmp.Write(data); err != nil {
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return err
-	}
-	committed = true
-	return nil
 }
 
 // RunBackfill walks [cursor..UntilUTC] hour by hour (UTC), updating StatePath after each step.
@@ -160,8 +62,8 @@ func RunBackfill(ctx context.Context, opts BackfillOptions) error {
 			return err
 		}
 
-		url := ghArchiveDataHost + "/" + HourlyArchiveBaseName(cursor)
-		exists, err := probeArchiveForBackfill(ctx, url)
+		url := gitHubArchiveURL(HourlyArchiveBaseName(cursor))
+		exists, err := probeGitHubArchive(ctx, url)
 		if err != nil {
 			return fmt.Errorf("backfill probe %s: %w", url, err)
 		}
@@ -172,7 +74,7 @@ func RunBackfill(ctx context.Context, opts BackfillOptions) error {
 				return err
 			}
 			cursor = next
-			if err := sleepCtx(ctx, opts.PauseBetween); err != nil {
+			if err := sleepOrDone(ctx, opts.PauseBetween); err != nil {
 				return err
 			}
 			continue
@@ -189,7 +91,7 @@ func RunBackfill(ctx context.Context, opts BackfillOptions) error {
 				break
 			}
 			log.Printf("backfill: ingest attempt %d/%d failed: %v", attempt+1, maxAttempts, ingestErr)
-			if err := sleepCtx(ctx, backoffDuration(attempt)); err != nil {
+			if err := sleepOrDone(ctx, backoffDuration(attempt)); err != nil {
 				return err
 			}
 		}
@@ -202,7 +104,7 @@ func RunBackfill(ctx context.Context, opts BackfillOptions) error {
 			return err
 		}
 		cursor = next
-		if err := sleepCtx(ctx, opts.PauseBetween); err != nil {
+		if err := sleepOrDone(ctx, opts.PauseBetween); err != nil {
 			return err
 		}
 	}
@@ -217,126 +119,4 @@ func backoffDuration(attempt int) time.Duration {
 		d *= 2
 	}
 	return d
-}
-
-func sleepCtx(ctx context.Context, d time.Duration) error {
-	if d <= 0 {
-		return nil
-	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
-	}
-}
-
-// probeArchiveForBackfill returns false,nil for 404; true,nil for 200; retries 429/5xx and network errors.
-func probeArchiveForBackfill(ctx context.Context, src string) (bool, error) {
-	backoff := time.Second
-	for attempt := 0; attempt < 24; attempt++ {
-		if err := ctx.Err(); err != nil {
-			return false, err
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodHead, src, nil)
-		if err != nil {
-			return false, err
-		}
-		setArchiveRequestHeaders(req)
-		resp, err := hourlyProbeClient.Do(req)
-		if err != nil {
-			log.Printf("backfill: head %s: %v (retry in %s)", src, err, backoff)
-			if err := sleepCtx(ctx, backoff); err != nil {
-				return false, err
-			}
-			if backoff < 30*time.Second {
-				backoff *= 2
-			}
-			continue
-		}
-		code := resp.StatusCode
-		_ = resp.Body.Close()
-
-		switch code {
-		case http.StatusOK:
-			return true, nil
-		case http.StatusNotFound:
-			return false, nil
-		case http.StatusMethodNotAllowed:
-			ok, err := getProbeBackfill(ctx, src)
-			if err != nil {
-				log.Printf("backfill: get probe %s: %v (retry in %s)", src, err, backoff)
-				if err := sleepCtx(ctx, backoff); err != nil {
-					return false, err
-				}
-				if backoff < 30*time.Second {
-					backoff *= 2
-				}
-				continue
-			}
-			return ok, nil
-		case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-			log.Printf("backfill: head %s status %d (retry in %s)", src, code, backoff)
-			if err := sleepCtx(ctx, backoff); err != nil {
-				return false, err
-			}
-			if backoff < 30*time.Second {
-				backoff *= 2
-			}
-			continue
-		default:
-			if code >= 500 {
-				log.Printf("backfill: head %s status %d (retry in %s)", src, code, backoff)
-				if err := sleepCtx(ctx, backoff); err != nil {
-					return false, err
-				}
-				if backoff < 30*time.Second {
-					backoff *= 2
-				}
-				continue
-			}
-			if code >= 400 {
-				return false, fmt.Errorf("head %s: %s", src, resp.Status)
-			}
-			return false, fmt.Errorf("head %s: unexpected status %d", src, code)
-		}
-	}
-	return false, fmt.Errorf("backfill: probe exhausted retries for %s", src)
-}
-
-func getProbeBackfill(ctx context.Context, src string) (bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src, nil)
-	if err != nil {
-		return false, err
-	}
-	setArchiveRequestHeaders(req)
-	resp, err := hourlyProbeClient.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return true, nil
-	case http.StatusNotFound:
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return false, nil
-	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return false, fmt.Errorf("status %d", resp.StatusCode)
-	default:
-		if resp.StatusCode >= 500 {
-			_, _ = io.Copy(io.Discard, resp.Body)
-			return false, fmt.Errorf("status %d", resp.StatusCode)
-		}
-		_, _ = io.Copy(io.Discard, resp.Body)
-		if resp.StatusCode >= 400 {
-			return false, fmt.Errorf("get %s: %s", src, resp.Status)
-		}
-		return false, fmt.Errorf("get %s: unexpected %d", src, resp.StatusCode)
-	}
 }

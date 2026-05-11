@@ -3,17 +3,9 @@ package ingest
 import (
 	"context"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
-	"os"
-	"strings"
 	"time"
 )
-
-const ghArchiveDataHost = "https://data.gharchive.org"
-
-var hourlyProbeClient = &http.Client{Timeout: 60 * time.Second}
 
 // giveUpAfterTargetStart is how long after the target archive hour begins we stop
 // polling (archive for hour H is usually published during H+1; H+3 is a safe cap).
@@ -35,10 +27,6 @@ func HourlyArchiveBaseName(hourStartUTC time.Time) string {
 	return fmt.Sprintf("%s-%d.json.gz", t.Format("2006-01-02"), t.Hour())
 }
 
-func hourlyArchiveURL(basename string) string {
-	return ghArchiveDataHost + "/" + basename
-}
-
 // pollInterval returns the sleep duration before the next poll attempt, using the
 // current UTC wall clock (see architecure/github-hourly-file-subscription.md).
 func pollInterval(now time.Time) time.Duration {
@@ -57,7 +45,7 @@ func pollInterval(now time.Time) time.Duration {
 func RunClosestFutureHourArchive(parent context.Context) error {
 	targetHour := ClosestFutureArchiveHourUTC(time.Now())
 	basename := HourlyArchiveBaseName(targetHour)
-	src := hourlyArchiveURL(basename)
+	src := gitHubArchiveURL(basename)
 	log.Printf("hourly job: target UTC hour start %s, file %s", targetHour.Format(time.RFC3339), basename)
 
 	deadline := targetHour.Add(giveUpAfterTargetStart)
@@ -69,7 +57,7 @@ func RunClosestFutureHourArchive(parent context.Context) error {
 			return fmt.Errorf("gh archive hourly: %w (target %s)", err, basename)
 		}
 
-		ok, err := archiveAvailable(ctx, src)
+		ok, err := probeGitHubArchive(ctx, src)
 		if err != nil {
 			return err
 		}
@@ -83,82 +71,5 @@ func RunClosestFutureHourArchive(parent context.Context) error {
 		if err := sleepOrDone(ctx, wait); err != nil {
 			return fmt.Errorf("gh archive hourly: %w (target %s)", err, basename)
 		}
-	}
-}
-
-func sleepOrDone(ctx context.Context, d time.Duration) error {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
-	}
-}
-
-func archiveAvailable(ctx context.Context, src string) (bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, src, nil)
-	if err != nil {
-		return false, fmt.Errorf("build head: %w", err)
-	}
-	setArchiveRequestHeaders(req)
-
-	resp, err := hourlyProbeClient.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("head %s: %w", src, err)
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-		return true, nil
-	case http.StatusNotFound:
-		return false, nil
-	case http.StatusMethodNotAllowed:
-		return archiveAvailableGET(ctx, src)
-	default:
-		if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
-			log.Printf("hourly job: head %s: %s (treating as not ready, will retry)", src, resp.Status)
-			return false, nil
-		}
-		return false, fmt.Errorf("head %s: %s", src, resp.Status)
-	}
-}
-
-func archiveAvailableGET(ctx context.Context, src string) (bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src, nil)
-	if err != nil {
-		return false, fmt.Errorf("build get: %w", err)
-	}
-	setArchiveRequestHeaders(req)
-
-	resp, err := hourlyProbeClient.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("get %s: %w", src, err)
-	}
-	defer resp.Body.Close()
-
-	switch resp.StatusCode {
-	case http.StatusOK:
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return true, nil
-	case http.StatusNotFound:
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return false, nil
-	default:
-		_, _ = io.Copy(io.Discard, resp.Body)
-		if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
-			log.Printf("hourly job: get %s: %s (treating as not ready, will retry)", src, resp.Status)
-			return false, nil
-		}
-		return false, fmt.Errorf("get %s: %s", src, resp.Status)
-	}
-}
-
-func setArchiveRequestHeaders(req *http.Request) {
-	req.Header.Set("User-Agent", "github-intel-ingestor/1.0")
-	if tok := strings.TrimSpace(os.Getenv("GITHUB_TOKEN")); tok != "" {
-		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 }
