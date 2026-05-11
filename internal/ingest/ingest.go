@@ -53,9 +53,6 @@ func Ingest(filename string) error {
 		return fmt.Errorf("parse: %w", err)
 	}
 	log.Printf("parsed %d events", len(events))
-	if len(events) > 0 {
-		log.Printf("events[0]: %v", events[0])
-	}
 
 	ctx := context.Background()
 	conn, err := clickhouse.Open(ctx)
