@@ -11,6 +11,8 @@ import (
 	"log"
 	"os"
 	"time"
+
+	"github.com/lunochkin/github-intel/internal/clickhouse"
 )
 
 type Event struct {
@@ -54,7 +56,7 @@ func Ingest(filename string) error {
 	}
 
 	ctx := context.Background()
-	conn, err := openClickHouse(ctx)
+	conn, err := clickhouse.Open(ctx)
 	if err != nil {
 		return fmt.Errorf("clickhouse: %w", err)
 	}

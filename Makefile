@@ -1,12 +1,14 @@
 BIN_DIR ?= bin
 GO      ?= go
 CMDS    := api ingestor
+# Pinned dev watcher: override with GOW=github.com/mitranim/gow@latest etc.
+GOW     ?= github.com/mitranim/gow@latest
 
 LDFLAGS ?=
 
 BUILD_TARGETS := $(addprefix $(BIN_DIR)/,$(CMDS))
 
-.PHONY: all help build install fmt vet test test-race tidy clean run-api run-ingestor run-migrate-clickhouse lint
+.PHONY: all help build install fmt vet test test-race tidy clean run-api dev-api run-ingestor run-migrate-clickhouse lint
 
 # Arguments for run-migrate-clickhouse (e.g. make run-migrate-clickhouse MIGRATE_ARGS=version)
 MIGRATE_ARGS ?= up
@@ -46,6 +48,9 @@ clean: ## Remove $(BIN_DIR)/
 
 run-api: ## Run cmd/api (pass LISTEN_ADDR=:8080 to override)
 	$(GO) run ./cmd/api
+
+dev-api: ## Run cmd/api with file watch (restarts on Go source / module changes)
+	$(GO) run $(GOW) -e=go -e=mod -e=sum run ./cmd/api
 
 run-ingestor: ## Run cmd/ingestor
 	$(GO) run ./cmd/ingestor $(INGESTOR_ARGS)

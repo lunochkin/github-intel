@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/lunochkin/github-intel/internal/clickhouse"
 	"github.com/lunochkin/github-intel/internal/dotenv"
 	"github.com/lunochkin/github-intel/internal/server"
 )
@@ -17,10 +19,17 @@ func main() {
 		log.Fatalf("load .env: %v", err)
 	}
 
-	addr := getenv("LISTEN_ADDR", ":8080")
+	ctxBG := context.Background()
+	chConn, err := clickhouse.Open(ctxBG)
+	if err != nil {
+		log.Fatalf("clickhouse: %v", err)
+	}
+	defer chConn.Close()
+
+	addr := os.Getenv("LISTEN_ADDR")
 	srv := &http.Server{
 		Addr:         addr,
-		Handler:      server.NewMux(),
+		Handler:      server.NewMux(chConn),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 60 * time.Second,
 	}
@@ -36,16 +45,8 @@ func main() {
 		}
 	}()
 
-	log.Printf("api listening on %s", addr)
+	log.Printf("api listening on http://localhost%s/summary", addr)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
-}
-
-func getenv(key, def string) string {
-	v := os.Getenv(key)
-	if v == "" {
-		return def
-	}
-	return v
 }
