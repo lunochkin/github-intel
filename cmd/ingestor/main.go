@@ -17,11 +17,12 @@ func main() {
 	args := flag.Args()
 	log.Printf("args: %v", args)
 	if len(args) < 1 {
-		log.Fatal("usage: ingestor <filename>")
+		log.Fatal("usage: ingestor <filename> [more filenames...]")
 	}
-	name := args[0]
 
-	if err := ingest.Ingest(name); err != nil {
-		log.Fatal(err)
+	for _, name := range args {
+		if err := ingest.Ingest(name); err != nil {
+			log.Fatalf("%s: %v", name, err)
+		}
 	}
 }

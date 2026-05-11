@@ -3,6 +3,10 @@ Phase-1:
 - [x] ClickHouse migrations
 - [x] Support file load and parsing (basic)
 - [x] Insert into ClickHouse
-- [ ] Manual trigger to load one GitHub Archive hourly file
+- [x] Expose GET /summary
+- [x] Initialize web UI
+- [x] Download GitHub Archive hourly file
+- [x] Manual trigger to load one GitHub Archive hourly file
+- [ ] Subscribe to GitHub Archive hourly file
 - [ ] Parse PushEvent / PullRequestEvent / WatchEvent
 - [ ] Expose GET /repos/:owner/:repo/summary
