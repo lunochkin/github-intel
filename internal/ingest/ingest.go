@@ -71,6 +71,19 @@ func Ingest(filename string) error {
 	return nil
 }
 
+// IngestDeletingLocal runs Ingest for spec (URL or basename) then deletes the
+// locally cached .json.gz if present. Used by backfill to avoid unbounded disk use.
+func IngestDeletingLocal(spec string) error {
+	if err := Ingest(spec); err != nil {
+		return err
+	}
+	local := localArchivePath(spec)
+	if err := os.Remove(local); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove cached archive %s: %w", local, err)
+	}
+	return nil
+}
+
 func loadFile(filename string) (io.ReadCloser, error) {
 	local := localArchivePath(filename)
 	log.Printf("loading file: %s", local)

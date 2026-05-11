@@ -8,7 +8,7 @@ LDFLAGS ?=
 
 BUILD_TARGETS := $(addprefix $(BIN_DIR)/,$(CMDS))
 
-.PHONY: all help build install fmt vet test test-race tidy clean run-api dev-api run-ingestor run-ingestor-hourly run-migrate-clickhouse lint web-install web-dev web-build
+.PHONY: all help build install fmt vet test test-race tidy clean run-api dev-api run-ingestor run-ingestor-hourly run-ingestor-backfill run-migrate-clickhouse lint web-install web-dev web-build
 
 # Arguments for run-migrate-clickhouse (e.g. make run-migrate-clickhouse MIGRATE_ARGS=version)
 MIGRATE_ARGS ?= up
@@ -57,6 +57,11 @@ run-ingestor: ## Run cmd/ingestor (set INGESTOR_ARGS or use run-ingestor-hourly)
 
 run-ingestor-hourly: ## Poll GH Archive for current UTC hour file (next published) and ingest once
 	$(GO) run ./cmd/ingestor -hourly
+
+# Example: make run-ingestor-backfill BACKFILL_ARGS='-backfill-until=2015-01-02 -backfill-state=./var/backfill.json'
+BACKFILL_ARGS ?=
+run-ingestor-backfill: ## Sequential GH Archive backfill (see architecure/github-archive-backfill.md)
+	$(GO) run ./cmd/ingestor -backfill $(BACKFILL_ARGS)
 
 run-migrate-clickhouse: ## Run cmd/migrate-clickhouse (default: up; use MIGRATE_ARGS=… to override)
 	$(GO) run ./cmd/migrate-clickhouse $(MIGRATE_ARGS)

@@ -7,6 +7,7 @@ Phase-1:
 - [x] Initialize web UI
 - [x] Download GitHub Archive hourly file
 - [x] Manual trigger to load one GitHub Archive hourly file
-- [ ] Subscribe to GitHub Archive hourly file
+- [x] Subscribe to GitHub Archive hourly file
+- [x] Implement backfill for GitHub Archive
 - [ ] Parse PushEvent / PullRequestEvent / WatchEvent
 - [ ] Expose GET /repos/:owner/:repo/summary

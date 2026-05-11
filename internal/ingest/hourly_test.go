@@ -17,8 +17,16 @@ func TestClosestFutureArchiveHourUTC(t *testing.T) {
 
 func TestHourlyArchiveBaseName(t *testing.T) {
 	h := time.Date(2015, 1, 1, 5, 0, 0, 0, time.UTC)
-	if g, w := HourlyArchiveBaseName(h), "2015-01-01-05.json.gz"; g != w {
-		t.Fatalf("got %q want %q", g, w)
+	if g, w := HourlyArchiveBaseName(h), "2015-01-01-5.json.gz"; g != w {
+		t.Fatalf("hour 5: got %q want %q", g, w)
+	}
+	h0 := time.Date(2011, 2, 15, 0, 0, 0, 0, time.UTC)
+	if g, w := HourlyArchiveBaseName(h0), "2011-02-15-0.json.gz"; g != w {
+		t.Fatalf("hour 0: got %q want %q", g, w)
+	}
+	h15 := time.Date(2015, 1, 1, 15, 0, 0, 0, time.UTC)
+	if g, w := HourlyArchiveBaseName(h15), "2015-01-01-15.json.gz"; g != w {
+		t.Fatalf("hour 15: got %q want %q", g, w)
 	}
 }
 

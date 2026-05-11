@@ -27,9 +27,12 @@ func ClosestFutureArchiveHourUTC(now time.Time) time.Time {
 	return now.UTC().Truncate(time.Hour)
 }
 
-// HourlyArchiveBaseName returns the GH Archive filename for the hour starting at t (UTC), e.g. 2015-01-01-15.json.gz.
+// HourlyArchiveBaseName returns the GH Archive filename for the hour starting at t (UTC).
+// The hour is decimal without a leading zero for 0–9 (e.g. ...-0.json.gz), matching data.gharchive.org;
+// padded forms such as ...-00.json.gz return 404.
 func HourlyArchiveBaseName(hourStartUTC time.Time) string {
-	return hourStartUTC.UTC().Format("2006-01-02-15") + ".json.gz"
+	t := hourStartUTC.UTC()
+	return fmt.Sprintf("%s-%d.json.gz", t.Format("2006-01-02"), t.Hour())
 }
 
 func hourlyArchiveURL(basename string) string {
