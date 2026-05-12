@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -163,6 +164,12 @@ func hoursToProcess(ctx context.Context, opts BackfillOptions) (chan time.Time, 
 	return ch, nil
 }
 
+// isGoAway reports whether err comes from an HTTP/2 GOAWAY frame.
+// GOAWAY is recoverable on a fresh connection — retry immediately, no backoff.
+func isGoAway(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "GOAWAY")
+}
+
 func processHour(ctx context.Context, cursor time.Time, maxAttempts int) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -192,6 +199,9 @@ func processHour(ctx context.Context, cursor time.Time, maxAttempts int) error {
 			return fmt.Errorf("backfill ingest %s: %w", url, ingestErr)
 		}
 		log.Printf("backfill: ingest attempt %d/%d failed: %v", attempt+1, maxAttempts, ingestErr)
+		if isGoAway(ingestErr) {
+			continue
+		}
 		if err := sleepOrDone(ctx, backoffDuration(attempt)); err != nil {
 			return err
 		}

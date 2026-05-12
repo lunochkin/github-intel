@@ -12,7 +12,15 @@ import (
 	"time"
 )
 
-var gitHubActiveProbeClient = &http.Client{Timeout: 60 * time.Second}
+func newGitHubArchiveProbeClient() *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.MaxConnsPerHost = 10
+	tr.MaxIdleConnsPerHost = 10
+	tr.IdleConnTimeout = 90 * time.Second
+	return &http.Client{Timeout: 30 * time.Second, Transport: tr}
+}
+
+var gitHubArchiveProbeClient = newGitHubArchiveProbeClient()
 
 const ghArchiveDataHost = "https://data.gharchive.org"
 
@@ -32,7 +40,7 @@ func probeGitHubArchive(ctx context.Context, src string) (bool, error) {
 			return false, err
 		}
 		setGitHubArchiveRequestHeaders(req)
-		resp, err := gitHubActiveProbeClient.Do(req)
+		resp, err := gitHubArchiveProbeClient.Do(req)
 		if err != nil {
 			log.Printf("head %s: %v (retry in %s)", src, err, backoff)
 			if err := sleepOrDone(ctx, backoff); err != nil {
@@ -99,7 +107,7 @@ func getProbeBackfill(ctx context.Context, src string) (bool, error) {
 		return false, err
 	}
 	setGitHubArchiveRequestHeaders(req)
-	resp, err := gitHubActiveProbeClient.Do(req)
+	resp, err := gitHubArchiveProbeClient.Do(req)
 	if err != nil {
 		return false, err
 	}
