@@ -60,7 +60,9 @@ func insertEventsClickHouse(ctx context.Context, conn driverch.Conn, events []Ev
 				pub,
 				string(e.Payload),
 			); err != nil {
-				batch.Abort()
+				if err := batch.Abort(); err != nil {
+					return fmt.Errorf("batch abort: %w", err)
+				}
 				return fmt.Errorf("append event %q: %w", e.ID, err)
 			}
 		}

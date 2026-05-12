@@ -103,7 +103,11 @@ func getProbeBackfill(ctx context.Context, src string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("github archive: close body: %v", err)
+		}
+	}()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -129,7 +133,10 @@ func getProbeBackfill(ctx context.Context, src string) (bool, error) {
 }
 
 func downloadGitHubArchiveFile(spec string) error {
-	dest := localArchivePath(spec)
+	dest, err := localArchivePath(spec)
+	if err != nil {
+		return fmt.Errorf("local archive path: %w", err)
+	}
 	src := ghArchiveURL(spec)
 	log.Printf("downloading %s -> %s", src, dest)
 
@@ -149,7 +156,12 @@ func downloadGitHubArchiveFile(spec string) error {
 	if err != nil {
 		return fmt.Errorf("http get: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Printf("github archive: close body: %v", err)
+		}
+	}()
+
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("http get %s: %s", src, resp.Status)
 	}

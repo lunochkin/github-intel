@@ -24,7 +24,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("clickhouse: %v", err)
 	}
-	defer chConn.Close()
+	defer func() {
+		if err := chConn.Close(); err != nil {
+			log.Printf("clickhouse: %v", err)
+		}
+	}()
 
 	addr := os.Getenv("LISTEN_ADDR")
 	srv := &http.Server{

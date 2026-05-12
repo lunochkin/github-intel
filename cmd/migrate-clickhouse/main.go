@@ -42,7 +42,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("migrate init: %v", err)
 	}
-	defer m.Close()
+	defer func() {
+		if _, err := m.Close(); err != nil {
+			log.Printf("migrate close: %v", err)
+		}
+	}()
 
 	cmd := args[0]
 	switch cmd {

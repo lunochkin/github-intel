@@ -5,43 +5,109 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"sync"
 	"time"
 )
 
 // backfillState persists the next hour to ingest (UTC).
 type backfillState struct {
-	NextHourUTC string `json:"next_hour_utc"`
+	HoursUTCInProgress []string `json:"hours_utc_in_progress"`
+	NextHourUTC        string   `json:"next_hour_utc"`
 }
 
-// loadBackfillState reads StatePath. If missing or invalid, returns (zero, false, nil).
-func loadBackfillState(path string) (nextHour time.Time, ok bool, err error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return time.Time{}, false, nil
-		}
-		return time.Time{}, false, err
-	}
-	var st backfillState
-	if err := json.Unmarshal(data, &st); err != nil {
-		return time.Time{}, false, fmt.Errorf("state file %s: %w", path, err)
-	}
-	if st.NextHourUTC == "" {
-		return time.Time{}, false, nil
-	}
+func parseNextHourUTC(st backfillState) (time.Time, error) {
 	t, err := time.Parse(time.RFC3339Nano, st.NextHourUTC)
 	if err != nil {
 		t, err = time.Parse(time.RFC3339, st.NextHourUTC)
 	}
 	if err != nil {
-		return time.Time{}, false, fmt.Errorf("state next_hour_utc %q: %w", st.NextHourUTC, err)
+		return time.Time{}, fmt.Errorf("state next_hour_utc %q: %w", st.NextHourUTC, err)
 	}
-	return truncateHourUTC(t), true, nil
+	return truncateHourUTC(t), nil
 }
 
-func saveBackfillState(path string, nextHour time.Time) error {
-	nextHour = truncateHourUTC(nextHour)
-	st := backfillState{NextHourUTC: nextHour.UTC().Format(time.RFC3339)}
+var backfillStateMutex sync.Mutex
+
+func addHourUTCInProgress(path string, hour time.Time) error {
+	backfillStateMutex.Lock()
+	defer backfillStateMutex.Unlock()
+	st, loaded, err := loadBackfillState(path)
+	if err != nil {
+		return err
+	} else if !loaded {
+		st = backfillState{
+			HoursUTCInProgress: []string{},
+			NextHourUTC:        "",
+		}
+	}
+	h := hour.UTC().Format(time.RFC3339)
+	if !slices.Contains(st.HoursUTCInProgress, h) {
+		st.HoursUTCInProgress = append(st.HoursUTCInProgress, h)
+	}
+
+	nextHour, err := parseNextHourUTC(st)
+	if err != nil && st.NextHourUTC != "" {
+		return err
+	}
+	if err != nil || nextHour.Before(hour) || nextHour.Equal(hour) {
+		st.NextHourUTC = hour.Add(time.Hour).UTC().Format(time.RFC3339)
+	}
+	return saveBackfillState(path, st)
+}
+
+func removeHourUTCInProgress(path string, hour time.Time) error {
+	backfillStateMutex.Lock()
+	defer backfillStateMutex.Unlock()
+	st, loaded, err := loadBackfillState(path)
+	if err != nil {
+		return err
+	}
+	if !loaded {
+		return fmt.Errorf("hour %s not in progress", hour.Format(time.RFC3339))
+	}
+	key := hour.UTC().Format(time.RFC3339)
+	st.HoursUTCInProgress = slices.DeleteFunc(st.HoursUTCInProgress, func(h string) bool {
+		return h == key
+	})
+
+	doneNext := truncateHourUTC(hour).Add(time.Hour)
+	var watermark time.Time
+	if st.NextHourUTC != "" {
+		cur, err := parseNextHourUTC(st)
+		if err != nil {
+			watermark = doneNext
+		} else if cur.After(doneNext) {
+			watermark = cur
+		} else {
+			watermark = doneNext
+		}
+	} else {
+		watermark = doneNext
+	}
+	st.NextHourUTC = watermark.UTC().Format(time.RFC3339)
+
+	return saveBackfillState(path, st)
+}
+
+// loadBackfillState reads StatePath. If missing, returns (zero, false, nil).
+// If the file exists, returns the unmarshaled state and ok=true (NextHourUTC may be empty).
+func loadBackfillState(path string) (state backfillState, ok bool, err error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return backfillState{}, false, nil
+		}
+		return backfillState{}, false, err
+	}
+	var st backfillState
+	if err := json.Unmarshal(data, &st); err != nil {
+		return backfillState{}, false, fmt.Errorf("state file %s: %w", path, err)
+	}
+	return st, true, nil
+}
+
+func saveBackfillState(path string, st backfillState) error {
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return err

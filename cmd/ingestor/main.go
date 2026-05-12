@@ -22,7 +22,7 @@ func main() {
 	bfState := flag.String("backfill-state", "data/backfill-state.json", "JSON cursor file for resume")
 	bfPause := flag.Duration("backfill-pause", 500*time.Millisecond, "sleep after each ingested or skipped hour")
 	bfMaxAttempts := flag.Int("backfill-ingest-retries", 8, "max ingest attempts per hour before failing")
-
+	bfWorkers := flag.Int("backfill-workers", 10, "number of workers to use for the backfill")
 	flag.Parse()
 
 	if *hourly && *backfill {
@@ -62,6 +62,7 @@ func main() {
 			StatePath:         *bfState,
 			PauseBetween:      *bfPause,
 			MaxIngestAttempts: *bfMaxAttempts,
+			Workers:           *bfWorkers,
 		}
 		if err := ingest.RunBackfill(context.Background(), opts); err != nil {
 			log.Fatal(err)

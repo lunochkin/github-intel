@@ -61,7 +61,7 @@ run-ingestor-hourly: ## Poll GH Archive for current UTC hour file (next publishe
 # Example: make run-ingestor-backfill BACKFILL_ARGS='-backfill-until=2015-01-02 -backfill-state=./var/backfill.json'
 BACKFILL_ARGS ?=
 run-ingestor-backfill: ## Sequential GH Archive backfill (see architecure/github-archive-backfill.md)
-	$(GO) run ./cmd/ingestor -backfill $(BACKFILL_ARGS)
+	$(GO) run ./cmd/ingestor -backfill -backfill-workers=50 $(BACKFILL_ARGS)
 
 run-migrate-clickhouse: ## Run cmd/migrate-clickhouse (default: up; use MIGRATE_ARGS=… to override)
 	$(GO) run ./cmd/migrate-clickhouse $(MIGRATE_ARGS)

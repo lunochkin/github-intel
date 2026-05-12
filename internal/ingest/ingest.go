@@ -44,7 +44,11 @@ func Ingest(filename string) error {
 	if err != nil {
 		return fmt.Errorf("load: %w", err)
 	}
-	defer r.Close()
+	defer func() {
+		if err := r.Close(); err != nil {
+			log.Printf("load file: close: %v", err)
+		}
+	}()
 
 	events, err := parse(r)
 	if err != nil {
@@ -57,7 +61,11 @@ func Ingest(filename string) error {
 	if err != nil {
 		return fmt.Errorf("clickhouse: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Printf("clickhouse: close: %v", err)
+		}
+	}()
 
 	if err := insertEventsClickHouse(ctx, conn, events); err != nil {
 		return fmt.Errorf("insert clickhouse: %w", err)
@@ -72,7 +80,10 @@ func IngestDeletingLocal(spec string) error {
 	if err := Ingest(spec); err != nil {
 		return err
 	}
-	local := localArchivePath(spec)
+	local, err := localArchivePath(spec)
+	if err != nil {
+		return fmt.Errorf("local archive path: %w", err)
+	}
 	if err := os.Remove(local); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove cached archive %s: %w", local, err)
 	}
@@ -80,7 +91,10 @@ func IngestDeletingLocal(spec string) error {
 }
 
 func loadFile(filename string) (io.ReadCloser, error) {
-	local := localArchivePath(filename)
+	local, err := localArchivePath(filename)
+	if err != nil {
+		return nil, fmt.Errorf("local archive path: %w", err)
+	}
 	log.Printf("loading file: %s", local)
 
 	if _, err := os.Stat(local); os.IsNotExist(err) {
@@ -93,20 +107,20 @@ func loadFile(filename string) (io.ReadCloser, error) {
 }
 
 // localArchivePath returns the filesystem path used for a GH Archive spec.
-// HTTP(S) URLs are stored under their path basename in the working directory.
-func localArchivePath(spec string) string {
+// HTTP(S) URLs are stored under data/ using their URL path basename.
+func localArchivePath(spec string) (string, error) {
 	u, err := url.Parse(spec)
 	if err != nil || u.Scheme == "" {
-		return spec
+		return spec, nil
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return spec
+		return spec, nil
 	}
 	base := filepath.Base(u.Path)
 	if base == "." || base == "/" {
-		return "gharchive.json.gz"
+		return "", fmt.Errorf("invalid spec: %s", spec)
 	}
-	return base
+	return filepath.Join("data", base), nil
 }
 
 func ghArchiveURL(spec string) string {
