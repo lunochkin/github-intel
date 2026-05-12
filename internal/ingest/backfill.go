@@ -54,10 +54,11 @@ func RunBackfill(ctx context.Context, opts BackfillOptions) error {
 		maxAttempts = 8
 	}
 
+producer:
 	for cursor := range hours {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			break producer
 		case tasks <- func() error {
 			if err := addHourUTCInProgress(opts.StatePath, cursor); err != nil {
 				return err

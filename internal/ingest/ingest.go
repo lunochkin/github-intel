@@ -36,6 +36,42 @@ type Event struct {
 	Payload    json.RawMessage `json:"payload"`
 }
 
+// UnmarshalJSON tolerates legacy GH Archive quirks:
+//   - created_at as "2006/01/02 15:04:05 -0700" (early 2012+) in addition to RFC3339.
+//   - public as number 0/1 in addition to bool.
+func (e *Event) UnmarshalJSON(data []byte) error {
+	type alias Event
+	aux := struct {
+		CreatedAt string          `json:"created_at"`
+		Public    json.RawMessage `json:"public"`
+		*alias
+	}{alias: (*alias)(e)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.CreatedAt != "" {
+		t, err := time.Parse(time.RFC3339, aux.CreatedAt)
+		if err != nil {
+			t, err = time.Parse("2006/01/02 15:04:05 -0700", aux.CreatedAt)
+		}
+		if err != nil {
+			return fmt.Errorf("created_at %q: %w", aux.CreatedAt, err)
+		}
+		e.CreatedAt = t
+	}
+	if len(aux.Public) > 0 {
+		switch string(aux.Public) {
+		case "true", "1":
+			e.Public = true
+		case "false", "0", "null":
+			e.Public = false
+		default:
+			return fmt.Errorf("public %s: unrecognized", aux.Public)
+		}
+	}
+	return nil
+}
+
 // String implements fmt.Stringer. Payload is omitted (large; use json.RawMessage parsing when needed).
 func (e Event) String() string {
 	return fmt.Sprintf(
