@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -16,6 +17,10 @@ import (
 
 	"github.com/lunochkin/github-intel/internal/clickhouse"
 )
+
+// ErrParse marks unrecoverable archive parse failures (malformed JSON,
+// unsupported timestamp format). Backfill must not retry these.
+var ErrParse = errors.New("parse")
 
 type Event struct {
 	ID         string          `json:"id"`
@@ -151,7 +156,7 @@ func parse(r io.Reader) ([]Event, error) {
 		lineNum++
 		var event Event
 		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
-			return nil, fmt.Errorf("parse line %d: %w", lineNum, err)
+			return nil, fmt.Errorf("%w line %d: %w", ErrParse, lineNum, err)
 		}
 		events = append(events, event)
 	}

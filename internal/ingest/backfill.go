@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -185,6 +186,9 @@ func processHour(ctx context.Context, cursor time.Time, maxAttempts int) error {
 		ingestErr = IngestDeletingLocal(url)
 		if ingestErr == nil {
 			break
+		}
+		if errors.Is(ingestErr, ErrParse) {
+			return fmt.Errorf("backfill ingest %s: %w", url, ingestErr)
 		}
 		log.Printf("backfill: ingest attempt %d/%d failed: %v", attempt+1, maxAttempts, ingestErr)
 		if err := sleepOrDone(ctx, backoffDuration(attempt)); err != nil {
