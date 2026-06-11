@@ -1,325 +1,147 @@
-# GitHub Engineering Intelligence Backend
+# GitHub Intel
 
-## Core idea
+A backend that turns public GitHub event data into analytical insights about
+repositories, organizations, and contributors.
 
-Build a backend system that turns public GitHub event data into analytical insights about repositories, organizations, contributors, and engineering activity.
+> A practice build in public: production-grade backend patterns — ingestion,
+> analytics storage, minimal API — exercised on real GitHub event data. Early
+> stage; the [Status](#status) section is the source of truth for what works.
 
-Conceptually:
+Events are pulled from [GH Archive](https://www.gharchive.org/) hourly JSON
+files, parsed, and stored in ClickHouse for analytical queries. A small HTTP API
+exposes aggregates, with a React dashboard on top.
 
 ```text
-GitHub public events
-        ↓
-Ingestion
-        ↓
-Normalization
-        ↓
-Aggregation
-        ↓
-ClickHouse / Postgres
-        ↓
-Analytical APIs
+GH Archive hourly files
+        │
+        ▼
+    ingestor  ──►  ClickHouse  ──►  api  ──►  web dashboard
 ```
 
-## Main goal
+## Status
 
-Train production backend/system skills:
+Early stage. What works today:
 
-* Go backend engineering
-* event ingestion
-* queues/workers
-* ClickHouse analytics
-* PostgreSQL metadata storage
-* retries/idempotency
-* batching/backpressure
-* observability
-* API design
-* performance profiling
+- GH Archive download with atomic temp-file-then-rename, retries, and GOAWAY
+  handling.
+- Event parsing with legacy-format tolerance (old slash-format `created_at`,
+  numeric `public`).
+- Backfill: sequential historical ingest with a resumable cursor; hourly mode
+  polls for the latest published file.
+- Raw events inserted into ClickHouse.
+- `GET /summary` — global aggregate over all ingested events (row count, unique
+  events/repos/actors, time range).
+- Minimal React/Vite dashboard.
 
-## Data sources
+Not yet built: typed per-event-type parsing, scoped per-repo/org endpoints,
+queue + workers, Postgres metadata, observability, GitHub API enrichment. See
+[Roadmap](#roadmap).
 
-Start with:
+## Tech stack
 
-* GitHub Archive hourly JSON files
-* GitHub REST API for enrichment later
+- **Go** — ingestor and HTTP API
+- **ClickHouse** — analytics storage (migrations via golang-migrate)
+- **React + TypeScript + Vite** — dashboard (`web/`)
 
-Avoid scraping.
+## Getting started
 
-## MVP domain
+### Prerequisites
 
-Entities:
+- Go (see `go.mod` for the version)
+- A running ClickHouse instance
+- Node.js (for the web UI)
 
-```text
-repository
-organization
-user
-event
-pull_request
-issue
-release
-language
-topic
+### Configure
+
+Copy the example env and adjust:
+
+```sh
+cp .env.example .env
 ```
 
-Event types:
+| Variable                         | Default          | Purpose                                  |
+| -------------------------------- | ---------------- | ---------------------------------------- |
+| `LISTEN_ADDR`                    | `:8800`          | API listen address                       |
+| `CLICKHOUSE_HOST`                | `localhost`      | ClickHouse host                          |
+| `CLICKHOUSE_PORT`                | `9000`           | Native protocol port                     |
+| `CLICKHOUSE_USER`                | `default`        | ClickHouse user                          |
+| `CLICKHOUSE_PASSWORD`            | _(empty)_        | ClickHouse password                      |
+| `CLICKHOUSE_DATABASE`            | `github_intel`   | Database for reads/writes                |
+| `CLICKHOUSE_MIGRATIONS_DATABASE` | `default`        | Where `schema_migrations` is stored      |
 
-```text
-PushEvent
-PullRequestEvent
-IssuesEvent
-WatchEvent
-ForkEvent
-CreateEvent
-ReleaseEvent
+### Run migrations
+
+```sh
+make run-migrate-clickhouse           # apply all (up)
+make run-migrate-clickhouse MIGRATE_ARGS=down
 ```
 
-## Architecture v1
+### Ingest data
 
-Start simple:
+```sh
+# Ingest a specific local file
+make run-ingestor INGESTOR_ARGS=data/2015-01-01-0.json.gz
 
-```text
-ingestor-service
-        ↓
-RabbitMQ / Redpanda
-        ↓
-worker-service
-        ↓
-ClickHouse
-        ↓
-analytics-api
+# Poll and ingest the latest published hourly file
+make run-ingestor-hourly
+
+# Sequential historical backfill (resumable)
+make run-ingestor-backfill BACKFILL_ARGS='-backfill-from=2015-01-01 -backfill-until=2015-01-02'
 ```
 
-Postgres stores metadata:
+### Run the API
 
-```text
-repositories
-organizations
-users
-import_jobs
-api_keys
-saved_queries
-```
-
-ClickHouse stores analytics data:
-
-```text
-raw_github_events
-repo_daily_metrics
-org_daily_metrics
-contributor_daily_metrics
-```
-
-## MVP endpoints
-
-```text
-GET /repos/:owner/:repo/summary
-GET /repos/:owner/:repo/timeseries
-GET /repos/:owner/:repo/contributors
-GET /repos/:owner/:repo/pr-latency
-GET /orgs/:org/velocity
-GET /trending/repos?language=go&period=7d
-GET /languages/trends?period=30d
-```
-
-## Metrics to compute
-
-Repository-level:
-
-```text
-stars_per_day
-forks_per_day
-pushes_per_day
-prs_opened
-prs_merged
-issues_opened
-issues_closed
-release_count
-active_contributors
-```
-
-Engineering velocity:
-
-```text
-median_pr_review_time
-median_pr_merge_time
-pr_throughput
-issue_resolution_time
-release_frequency
-contributor_growth
-```
-
-Trend metrics:
-
-```text
-trending_repositories
-fastest_growing_repos
-language_growth
-org_activity_rankings
-```
-
-## Development phases
-
-### Phase 1 — Local ingestion
-
-Goal:
-
-```text
-Download one GitHub Archive hourly file
-Parse events
-Insert raw events into ClickHouse
-Expose one summary endpoint
-```
-
-Deliverable:
-
-```text
-GET /repos/:owner/:repo/summary
-```
-
-### Phase 2 — Queue + workers
-
-Goal:
-
-```text
-Ingest multiple hourly files
-Publish events to queue
-Batch insert into ClickHouse
-Track import job status in Postgres
-```
-
-Practice:
-
-```text
-worker pools
-context cancellation
-batching
-retries
-idempotency
-graceful shutdown
-```
-
-### Phase 3 — Analytical queries
-
-Goal:
-
-```text
-Build timeseries and ranking endpoints
+```sh
+make run-api        # http://localhost:8800
+make dev-api        # with file-watch reload
 ```
 
 Endpoints:
 
-```text
-GET /repos/:owner/:repo/timeseries
-GET /trending/repos
-GET /languages/trends
+- `GET /summary` — aggregate statistics
+- `GET /healthz` — health check
+
+### Run the dashboard
+
+```sh
+make web-install
+make web-dev        # Vite dev server, proxies /summary and /healthz to :8800
+make web-build      # production build into web/dist
 ```
 
-Practice:
+## Development
 
-```text
-ClickHouse ordering keys
-partitions
-GROUP BY optimization
-materialized views
-query profiling
+```sh
+make build          # compile binaries into bin/
+make test           # go test -short ./...
+make test-race      # go test -race ./...
+make vet
+make lint           # requires golangci-lint
+make fmt
+make tidy
 ```
 
-### Phase 4 — GitHub API enrichment
+Design notes live in [`architecture/`](architecture/).
 
-Goal:
+## Roadmap
 
-```text
-Enrich repositories with language, topics, description, stars, forks
-```
+- Typed parsing for `PushEvent` / `PullRequestEvent` / `IssuesEvent` / etc.
+- Scoped endpoints: `/repos/:owner/:repo/summary`, timeseries, contributors,
+  PR latency; `/orgs/:org/velocity`; `/trending/repos`; `/languages/trends`.
+- Queue + worker pools, batched inserts, import-job tracking in Postgres,
+  idempotency, graceful shutdown.
+- Observability: structured logs, Prometheus metrics, OpenTelemetry traces,
+  pprof, health/readiness.
+- GitHub REST API enrichment (languages, topics, stars) with rate limiting.
+- Performance work: profiling, schema/query tuning, throughput measurement.
 
-Practice:
+## Data source
 
-```text
-rate limits
-API clients
-retry policies
-caching
-metadata sync
-```
+Built on [GH Archive](https://www.gharchive.org/), which publishes the public
+GitHub event stream as hourly JSON files. No scraping.
 
-### Phase 5 — Observability
+## License
 
-Add:
-
-```text
-structured logs
-Prometheus metrics
-OpenTelemetry traces
-pprof
-health/readiness endpoints
-queue lag metrics
-ClickHouse insert latency metrics
-```
-
-### Phase 6 — Performance and scaling
-
-Goal:
-
-```text
-Process N million events
-Measure throughput
-Find bottlenecks
-Optimize batch size, workers, schema, queries
-```
-
-Tools:
-
-```text
-pprof
-EXPLAIN
-ClickHouse system.query_log
-load generator
-```
-
-## Suggested tech stack
-
-```text
-Go
-PostgreSQL
-ClickHouse
-RabbitMQ or Redpanda
-Docker Compose
-OpenTelemetry
-Prometheus
-Grafana
-GitLab CI or GitHub Actions
-```
-
-For AppMagic alignment, RabbitMQ is closer to the vacancy.
-For your event-log interests, Redpanda is also fine.
-
-## First concrete task
-
-Build this first:
-
-```text
-Docker Compose:
-- Go API service
-- ClickHouse
-- Postgres
-
-Feature:
-- download one GH Archive file
-- parse PushEvent / PullRequestEvent / WatchEvent
-- insert into ClickHouse
-- expose GET /repos/:owner/:repo/summary
-```
-
-## Anti-overthinking rule
-
-Every week must end with a running increment.
-
-Before each week, write only:
-
-```text
-Goal:
-What should run by Sunday:
-Explicitly not included:
-Learning target:
-```
-
-No large architecture document before the system works.
+[MIT](LICENSE)
+</content>
+</invoke>

@@ -28,7 +28,7 @@ func HourlyArchiveBaseName(hourStartUTC time.Time) string {
 }
 
 // pollInterval returns the sleep duration before the next poll attempt, using the
-// current UTC wall clock (see architecure/github-hourly-file-subscription.md).
+// current UTC wall clock (see architecture/github-hourly-file-subscription.md).
 func pollInterval(now time.Time) time.Duration {
 	now = now.UTC()
 	hourStart := now.Truncate(time.Hour)

@@ -2,7 +2,7 @@
 
 ## Initial project scope
 
-A 6-phase backend learning project in Go to turn public GitHub event data into analytical insights.
+A 6-phase backend project in Go to turn public GitHub event data into analytical insights.
 
 **Phase 1** — Local ingestion: download one GH Archive file, parse events, insert into ClickHouse, expose one summary endpoint.
 
